@@ -45,6 +45,24 @@ def load_config(config_path: str):
         return _dict_to_easydict(yaml.safe_load(f))
 
 
+def apply_overrides(config, overrides):
+    """Apply dotted `key.sub=value` overrides (value parsed as YAML) in place."""
+    for item in overrides or []:
+        if "=" not in item:
+            raise ValueError(f"Override must be key=value, got {item!r}")
+        key, raw = item.split("=", 1)
+        parts = key.split(".")
+        node = config
+        for part in parts[:-1]:
+            if part not in node:
+                raise KeyError(f"Override path {key!r}: missing {part!r}")
+            node = node[part]
+        if parts[-1] not in node:
+            raise KeyError(f"Override key {key!r} does not exist in config")
+        node[parts[-1]] = _dict_to_easydict(yaml.safe_load(raw))
+    return config
+
+
 def prepare_rng(seed_or_gen: int | torch.Generator | None, tags=("params", "dropout")):
     del tags
     if isinstance(seed_or_gen, torch.Generator):

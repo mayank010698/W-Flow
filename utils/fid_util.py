@@ -14,7 +14,7 @@ from utils.env import IMAGENET_FID_NPZ, IMAGENET_PR_NPZ, TORCH_HUB_DIR
 from utils.logging import is_rank_zero
 from tqdm import tqdm
 
-if os.path.isdir(TORCH_HUB_DIR) or not os.path.exists(TORCH_HUB_DIR):
+if TORCH_HUB_DIR:  # empty when MODEL_ROOT is unset -> keep torch default
     os.makedirs(TORCH_HUB_DIR, exist_ok=True)
     torch.hub.set_dir(TORCH_HUB_DIR)
 

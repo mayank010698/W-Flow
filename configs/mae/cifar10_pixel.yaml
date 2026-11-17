@@ -1,0 +1,54 @@
+# E001: pixel-space MAE-ResNet feature encoder for CIFAR-10 (32x32x3).
+# Recipe mirrors configs/mae/latent_ablation_256.yaml (mask 0.5, const LR, EMA 0.9995,
+# no cls finetune) scaled to a single GPU and pixel inputs.
+logging:
+  use_wandb: true
+  log_every_k: 50
+
+dataset:
+  name: cifar10
+  num_classes: 10
+  resolution: 32
+  train_aug: crop_flip        # RandomCrop(32, pad 4, reflect) + HFlip
+  batch_size: 512
+  eval_batch_size: 1000
+  kwargs:
+    num_workers: 8
+    pin_memory: true
+    prefetch_factor: 2
+
+model:                        # MAEResNetJAX kwargs (stored in artifact metadata)
+  in_channels: 3
+  base_channels: 64           # feature maps: conv1/layer1 32x32x64 ... layer4 4x4x512
+  layers: [2, 2, 2, 2]
+  patch_size: 2               # mask granularity: 16x16 grid of 2x2 pixel patches
+  dropout_prob: 0.0
+  input_patch_size: 1
+  use_bf16: false             # params stay fp32; mixed precision via train.amp_bf16
+
+optimizer:
+  lr_schedule:
+    learning_rate: 0.001
+    warmup_steps: 2000
+    lr_schedule: "const"
+    total_steps: 40000
+  weight_decay: 0.01
+  adam_b1: 0.9
+  adam_b2: 0.95
+
+train:
+  seed: 0
+  total_steps: 40000          # ~410 epochs at bs 512
+  save_per_step: 5000
+  eval_per_step: 2000
+  keep_last: 2
+  keep_every: 20000
+  ema_decay: 0.9995
+  max_grad_norm: 1.0
+  amp_bf16: true
+  forward_dict:
+    mask_ratio_min: 0.5
+    mask_ratio_max: 0.5
+    lambda_cls: 0.0
+  finetune_last_steps: 0
+  finetune_cls: 0.0

@@ -14,7 +14,7 @@ from torchvision.datasets import ImageFolder
 
 from dataset.latent import LatentDataset
 from utils.dist_util import process_count, process_index
-from utils.env import IMAGENET_CACHE_PATH, IMAGENET_PATH
+from utils.env import CIFAR10_PATH, IMAGENET_CACHE_PATH, IMAGENET_PATH, require
 from utils.logging import log_for_0
 
 
@@ -148,6 +148,88 @@ def create_imagenet_split(
     def postprocess_fn(images):
         out = (torch.as_tensor(images) + 1.0) / 2.0
         out = torch.clamp(out, 0.0, 1.0)
+        return out.permute(0, 3, 1, 2).contiguous()
+
+    return loader, preprocess_fn, postprocess_fn
+
+
+class CIFAR10Arrays(torch.utils.data.Dataset):
+    """CIFAR-10 from `$CIFAR10_PATH/cifar10_{train,test}.npz` (uint8 NHWC `data`, int64 `labels`),
+    built by `scripts/prepare_cifar10.py convert` from the pinned HF parquet (see SOURCE.json)."""
+
+    def __init__(self, root: str, split: str, transform=None):
+        path = os.path.join(root, f"cifar10_{split}.npz")
+        if not os.path.isfile(path):
+            raise FileNotFoundError(f"{path} missing; run `python -m scripts.prepare_cifar10 download` then `convert`.")
+        with np.load(path) as f:
+            self.data = f["data"]
+            self.targets = f["labels"].astype(np.int64)
+        assert self.data.shape[1:] == (32, 32, 3) and self.data.dtype == np.uint8, self.data.shape
+        self.split, self.transform = split, transform
+
+    def __len__(self):
+        return int(self.data.shape[0])
+
+    def __getitem__(self, i):
+        img = Image.fromarray(self.data[i])
+        return (self.transform(img) if self.transform else img), int(self.targets[i])
+
+    def __repr__(self):
+        return f"CIFAR10Arrays(split={self.split}, n={len(self)}, transform={self.transform})"
+
+
+def _build_cifar10_dataset(*, split: str, aug: str):
+    """Images -> CHW float in [-1, 1]. aug: "none" | "flip" (generator) | "crop_flip" (MAE)."""
+    tfs = []
+    if aug == "crop_flip":
+        tfs.append(transforms.RandomCrop(32, padding=4, padding_mode="reflect"))
+    if aug in ("flip", "crop_flip"):
+        tfs.append(transforms.RandomHorizontalFlip())
+    elif aug != "none":
+        raise ValueError(f"Unknown CIFAR-10 aug: {aug}")
+    tfs += [transforms.ToTensor(), transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])]
+    return CIFAR10Arrays(require(CIFAR10_PATH, "CIFAR10_PATH"), split, transforms.Compose(tfs))
+
+
+def create_cifar10_split(
+    *,
+    batch_size: int,
+    split: str,
+    aug: str = "none",
+    shuffle: bool = True,
+    drop_last: bool | None = None,
+    num_workers: int = 4,
+    prefetch_factor: int = 2,
+    pin_memory: bool = False,
+    **unused,
+):
+    """Pixel-space CIFAR-10 loader with the same (loader, preprocess, postprocess) contract
+    as `create_imagenet_split`. preprocess -> BHWC in [-1,1]; postprocess -> BCHW in [0,1]."""
+    del unused
+    ds = _build_cifar10_dataset(split=split, aug=aug)
+    log_for_0(ds)
+    world, rank = process_count(), process_index()
+    sampler = DistributedSampler(ds, num_replicas=world, rank=rank, shuffle=shuffle)
+    loader = DataLoader(
+        ds,
+        batch_size=batch_size,
+        drop_last=(split == "train") if drop_last is None else drop_last,
+        worker_init_fn=partial(worker_init_fn, rank=rank),
+        sampler=sampler,
+        num_workers=num_workers,
+        prefetch_factor=(prefetch_factor if num_workers > 0 else None),
+        pin_memory=pin_memory,
+        persistent_workers=num_workers > 0,
+    )
+
+    def preprocess_fn(batch, rng=0):
+        del rng
+        image, label = batch
+        image = torch.as_tensor(image, dtype=torch.float32).permute(0, 2, 3, 1).contiguous()
+        return {"images": image, "labels": torch.as_tensor(label, dtype=torch.long)}
+
+    def postprocess_fn(images):
+        out = torch.clamp((torch.as_tensor(images) + 1.0) / 2.0, 0.0, 1.0)
         return out.permute(0, 3, 1, 2).contiguous()
 
     return loader, preprocess_fn, postprocess_fn

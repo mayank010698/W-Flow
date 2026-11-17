@@ -1,0 +1,51 @@
+# E001 SMOKE ONLY: tiny MAE to exercise the full code path (incl. cls finetune + resume).
+logging:
+  use_wandb: true
+  log_every_k: 1
+dataset:
+  name: cifar10
+  num_classes: 10
+  resolution: 32
+  train_aug: crop_flip
+  batch_size: 16
+  eval_batch_size: 200
+  kwargs:
+    num_workers: 0
+    pin_memory: false
+model:
+  in_channels: 3
+  base_channels: 16
+  layers:
+  - 1
+  - 1
+  - 1
+  - 1
+  patch_size: 2
+  dropout_prob: 0.0
+  input_patch_size: 1
+  use_bf16: false
+optimizer:
+  lr_schedule:
+    learning_rate: 0.001
+    warmup_steps: 2
+    lr_schedule: const
+    total_steps: 20
+  weight_decay: 0.01
+  adam_b1: 0.9
+  adam_b2: 0.95
+train:
+  seed: 0
+  total_steps: 20
+  save_per_step: 10
+  eval_per_step: 10
+  keep_last: 2
+  keep_every: 20000
+  ema_decay: 0.9995
+  max_grad_norm: 1.0
+  amp_bf16: true
+  forward_dict:
+    mask_ratio_min: 0.5
+    mask_ratio_max: 0.5
+    lambda_cls: 0.0
+  finetune_last_steps: 5
+  finetune_cls: 0.1

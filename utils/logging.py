@@ -37,6 +37,8 @@ class WandbLogger:
         self._count: Dict[str, int] = {}
         self.offline_dir = Path("log")
         self._wandb = None
+        self.wandb_run_id = None
+        self.wandb_url = None
 
     def set_logging(
         self,
@@ -54,12 +56,13 @@ class WandbLogger:
         self.use_wandb = bool(use_wandb)
         self.log_every_k = int(log_every_k)
         workdir_path = Path(workdir).resolve() if workdir else None
-        resolved_offline_dir = workdir_path / "log" if (workdir_path is not None and not self.use_wandb) else Path(offline_dir)
-        self.offline_dir = resolved_offline_dir
-        self.offline_dir.mkdir(parents=True, exist_ok=True)
-
+        # Always keep local logs inside the run's workdir (never the CWD / repo).
+        self.offline_dir = workdir_path / "log" if workdir_path is not None else Path(offline_dir)
+        self.wandb_run_id = None
+        self.wandb_url = None
         if not is_rank_zero():
             return
+        self.offline_dir.mkdir(parents=True, exist_ok=True)
 
         if self.use_wandb:
             import wandb
@@ -71,12 +74,16 @@ class WandbLogger:
             run_id = kwargs.pop("run_id", None) or default_run_id
             allow_resume = allow_resume and os.environ.get("WANDB_RESUME", "").lower() != "never"
             init_kwargs = dict(project=project, entity=entity, name=name, config=config, reinit=True)
+            if workdir_path is not None and not os.environ.get("WANDB_DIR"):
+                init_kwargs["dir"] = str(workdir_path)
             if allow_resume:
                 init_kwargs["resume"] = "allow"
                 if run_id:
                     init_kwargs["id"] = run_id
             init_kwargs.update(kwargs)
-            wandb.init(**init_kwargs)
+            run = wandb.init(**init_kwargs)
+            self.wandb_run_id = getattr(run, "id", None)
+            self.wandb_url = getattr(run, "url", None)
 
     def set_step(self, step: int) -> None:
         self.step = int(step)

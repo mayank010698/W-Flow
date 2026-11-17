@@ -21,7 +21,7 @@ import torch
 
 from utils.env import TORCH_HUB_DIR
 
-if os.path.isdir(TORCH_HUB_DIR) or not os.path.exists(TORCH_HUB_DIR):
+if TORCH_HUB_DIR:  # empty when MODEL_ROOT is unset -> keep torch default
     os.makedirs(TORCH_HUB_DIR, exist_ok=True)
     torch.hub.set_dir(TORCH_HUB_DIR)
 
