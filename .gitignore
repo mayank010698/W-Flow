@@ -5,3 +5,9 @@ wandb/
 __pycache__/
 *.pyc
 .DS_Store
+# Harness: secrets, local markers, stray logs
+.env
+.smoke-ok
+log/
+*.out
+*.err
