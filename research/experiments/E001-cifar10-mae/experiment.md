@@ -1,6 +1,6 @@
 # Experiment E001 — Pixel-space MAE pretraining on CIFAR-10
 
-**Status:** full MAE run completed 2026-11-17 (Slurm 12522363). H1 supported. H2 not yet tested. Encoder not yet copied to `$MODEL_ROOT`.
+**Status:** full MAE run completed 2026-11-17 (Slurm 12522363). H1 supported. H2 not yet tested. Encoder promoted to `$MODEL_ROOT/encoders/cifar10_pixel_mae_v1/` (2026-11-18).
 
 **Scope:** train the CIFAR-10 pixel-space MAE only. Generator training and FID are out of scope (user decision, 2026-11-17). They are tracked separately in `research/PLAN.md`.
 
@@ -90,3 +90,5 @@ Can the repo's MAE-ResNet (`models/mae_model.MAEResNetJAX`), trained with the up
 1. Copy the final `params_ema/` to `$MODEL_ROOT/encoders/cifar10_pixel_mae_v1/` and record its sha256 here.
 2. Optional: re-evaluate the step-40k checkpoint twice to test H2.
 3. Start E006 (generator benchmark + FID) using this encoder.
+
+**Encoder promotion (2026-11-18 00:07):** `params_ema/` at step 40000 copied to `$MODEL_ROOT/encoders/cifar10_pixel_mae_v1/` together with `PROVENANCE.json` (source run, Slurm 12522363, W&B fe50c51bbec3d566, SHA f6e6dce), `SHA256SUMS`, `resolved_config.yaml`, `run_meta.json`. `sha256sum -c SHA256SUMS` verified OK on 2026-11-18. Used by E005 via `feature.mae_path`.
