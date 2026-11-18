@@ -1,6 +1,6 @@
 # Experiment E001 — Pixel-space MAE pretraining on CIFAR-10
 
-**Status:** proposed
+**Status:** full MAE run completed 2026-11-17 (Slurm 12522363). H1 supported. H2 not yet tested. Encoder not yet copied to `$MODEL_ROOT`.
 
 **Scope:** train the CIFAR-10 pixel-space MAE only. Generator training and FID are out of scope (user decision, 2026-11-17). They are tracked separately in `research/PLAN.md`.
 
@@ -33,7 +33,7 @@ Can the repo's MAE-ResNet (`models/mae_model.MAEResNetJAX`), trained with the up
 
 **Random seeds:** train seed 0; eval mask seed 0.
 
-**Git branch/worktree/SHA/dirty:** branch `exp/e001-cifar10-protocol`, worktree `/projects/illinois/eng/cs/arindamb/mayanks4/W-Flow-worktrees/e001-cifar10-protocol`. Full-run SHA: TBD.
+**Git branch/worktree/SHA/dirty:** branch `exp/e001-cifar10-protocol`, worktree `/projects/illinois/eng/cs/arindamb/mayanks4/W-Flow-worktrees/e001-cifar10-protocol`. Full-run SHA: `f6e6dcef4344e028a2e63975841f0328caf36b55`, clean tree (`git_dirty: false` in `run_meta.json`).
 
 **Environment/hardware:** conda env `wflow` (Python 3.10.21, torch 2.5.1+cu124). 1x A100 (`--gres=gpu:A100:1`). Per-run `pip freeze` goes to `<run_dir>/env_freeze.txt`.
 
@@ -41,9 +41,10 @@ Can the repo's MAE-ResNet (`models/mae_model.MAEResNetJAX`), trained with the up
 - GPU smoke job: 1x A100, ≤20 min, `secondary`.
 - Full MAE run: 1x A100. Walltime set from the smoke-measured step time; expected to fit `secondary`'s 4 h limit.
 
-**W&B project/group/run IDs:** project `NWGF`, group `E001`. Run IDs TBD.
+**W&B project/group/run IDs:** project `NWGF` (entity `ml-climate`), group `E001`. Full run: `fe50c51bbec3d566`, https://wandb.ai/ml-climate/NWGF/runs/fe50c51bbec3d566 (synced).
 
-**Slurm job IDs and external log paths:** `$SLURM_LOG_ROOT/%x-%j.{out,err}`. IDs TBD.
+**Slurm job IDs and external log paths:** `$SLURM_LOG_ROOT/%x-%j.{out,err}`.
+- Full run: job `12522363`. Submitted 2026-11-17 15:15 with `sbatch ... -p secondary --time=04:00:00 slurm/e001.sbatch`. Accounting shows it ran on partition `dali`, node `ccc0284`, 1x A100 80GB PCIe, from 19:30:44 to 22:53:27 (3:22:43), `COMPLETED` with exit 0:0, MaxRSS ~3.7 GB. Logs: `$SLURM_LOG_ROOT/e001-12522363.{out,err}`.
 
 **Output/checkpoint paths:** `$OUTPUT_ROOT/E001-cifar10-mae/<run_name>-<timestamp>-<jobid>/` containing `checkpoints/`, `params_ema/` (the encoder artifact), `resolved_config.yaml`, `run_meta.json`, `env_freeze.txt`, `wandb/`. After the run, the final `params_ema/` is copied to `$MODEL_ROOT/encoders/cifar10_pixel_mae_v1/` with its SHA and W&B ID recorded here.
 
@@ -54,12 +55,38 @@ Can the repo's MAE-ResNet (`models/mae_model.MAEResNetJAX`), trained with the up
   - Artifact reload gave 36 finite feature keys. The zero baseline was identical across all evals (0.763084), so eval masks are fixed.
   - Step 5 FAILED due to a bug in the check itself: the hygiene check flagged my uncommitted source edits. Fixed to diff the worktree state before and after the run. Tiny-model loss values are not results.
 
-**Results (verified):** none yet.
+**Results (verified):** full run `mae-s0-20261117-193057-12522363`. Seed 0, SHA `f6e6dce`, config `configs/mae/cifar10_pixel.yaml` with no overrides.
+- Run dir: `$OUTPUT_ROOT/E001-cifar10-mae/mae-s0-20261117-193057-12522363/`.
+  - Checkpoints at steps 20k, 35k and 40k.
+  - `params_ema/ema_params.pt`: step 40000, decay 0.9995.
+  - Also `resolved_config.yaml`, `run_meta.json` and `env_freeze.txt`.
+- All 40,000 of 40,000 steps completed at a steady ~3.33 it/s, and stdout ends with `finished task=mae`.
+- EMA eval on all 10,000 test images (mask ratio 0.5, fixed masks):
 
-**Interpretation (hypotheses):** none yet.
+  | step | eval/recon_loss | zero baseline |
+  |---|---|---|
+  | 2,000 | 0.09712 | 0.76442 |
+  | 10,000 | 0.05188 | 0.76442 |
+  | 20,000 | 0.04905 | 0.76442 |
+  | 30,000 | 0.04807 | 0.76442 |
+  | 40,000 | **0.04746** | 0.76442 |
+
+- Final train summary: loss 0.04124, g_norm 0.046, lr 1e-3.
+- `eval/accuracy` stayed between 0.069 and 0.091 (final 0.0773). That is at or below chance, as expected with `lambda_cls=0`, and is not a result.
+
+**Interpretation (hypotheses):**
+- H1 is supported: the final recon MSE of 0.0475 is about 16x below the zero baseline (0.764) on identical masks, and no non-finite loss occurred.
+- H2 is untested; it needs two evaluations of the same checkpoint. The zero baseline was identical in all 20 evals, which suggests fixed masks but does not test model-eval determinism.
+- The loss was still falling slowly at 40k steps (-0.0001 per 2k steps over the last 10k). It is near a plateau but not converged. More steps would probably give only marginal gains. This is a conjecture.
+- Whether this encoder gives good drift features remains to be tested downstream (E006).
 
 **Failed attempts / limitations:**
 - Training is not bitwise reproducible (bf16 kernels, DataLoader workers); it is reproducible given the config and seed.
+- No separate GPU smoke job ran; Slurm accounting shows only 12522363. The full run itself served as the first GPU run.
+- Single seed (0).
 - Reconstruction MSE alone does not show the encoder is good for drift features. That is evaluated downstream, out of scope here.
 
-**Next steps:** CPU smoke, then GPU smoke (approval), then the full run (approval).
+**Next steps:**
+1. Copy the final `params_ema/` to `$MODEL_ROOT/encoders/cifar10_pixel_mae_v1/` and record its sha256 here.
+2. Optional: re-evaluate the step-40k checkpoint twice to test H2.
+3. Start E006 (generator benchmark + FID) using this encoder.
